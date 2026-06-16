@@ -49,8 +49,8 @@ jobs:
           # The Kernel Makefile requires KCFLAGS to append compiler flags, not CFLAGS
           make -j$(nproc) \
             KCONFIG_CONFIG=.config \
-            KCFLAGS="-march=x86-64-v3 -mtune=x86-64-v3" \
-            KCPPFLAGS="-march=x86-64-v3 -mtune=x86-64-v3" \
+            KCFLAGS="-march=x86-64-v3 -mtune=generic" \
+            KCPPFLAGS="-march=x86-64-v3 -mtune=generic" \
             LOCALVERSION="-wsl2-x86_64-v3"
 
       # ── 5. Upload bzImage as a downloadable artifact ─────────────────────
