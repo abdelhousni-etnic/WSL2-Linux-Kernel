@@ -1,0 +1,57 @@
+name: Build WSL2 Kernel (amd64-v3)
+
+on:
+  workflow_dispatch:           # trigger manually from the Actions tab
+  push:
+    tags:
+      - 'v*'                   # or auto-trigger on new version tags
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Install build dependencies ───────────────────────────────────
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential flex bison bc \
+            libssl-dev libelf-dev libncurses-dev \
+            dwarves pahole git
+
+      # ── 2. Checkout Microsoft WSL2 kernel source ─────────────────────────
+      - name: Checkout WSL2 kernel
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/WSL2-Linux-Kernel
+          ref: linux-msft-wsl-6.18.y    # ← change to the branch you want
+          depth: 1
+
+      # ── 3. Prepare config with amd64-v3 tuning ───────────────────────────
+      - name: Configure kernel
+        run: |
+          cp Microsoft/config-wsl .config
+
+          # Label the kernel so you recognise it in uname -r
+          sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-wsl2-x86_64-v3"/' .config
+
+          # Accept all new config options as defaults (avoids interactive prompts)
+          make olddefconfig
+
+      # ── 4. Compile with amd64-v3 flags ───────────────────────────────────
+      - name: Build kernel
+        run: |
+          make -j$(nproc) \
+            KCONFIG_CONFIG=.config \
+            CFLAGS="-march=x86-64-v3 -mtune=generic -O2 -pipe" \
+            CXXFLAGS="-march=x86-64-v3 -mtune=generic -O2 -pipe" \
+            LOCALVERSION="-wsl2-x86_64-v3"
+
+      # ── 5. Upload bzImage as a downloadable artifact ─────────────────────
+      - name: Upload bzImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: bzImage-wsl2-x86_64-v3
+          path: arch/x86/boot/bzImage
+          retention-days: 30
