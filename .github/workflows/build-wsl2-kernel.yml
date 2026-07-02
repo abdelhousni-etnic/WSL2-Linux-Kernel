@@ -36,13 +36,23 @@ jobs:
           # Label the kernel so you recognise it in uname -r
           sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-wsl2-x86_64-v3"/' .config
 
+          # Ensure TUN/TAP support is built-in (needed for podman/pasta, VPNs, etc.)
+          ./scripts/config --file .config --enable CONFIG_TUN
+
+          # Optional but recommended alongside TUN, if you also use bridged/veth networking
+          ./scripts/config --file .config --enable CONFIG_BRIDGE
+          ./scripts/config --file .config --enable CONFIG_VETH
+          ./scripts/config --file .config --enable CONFIG_NETFILTER_XT_MATCH_COMMENT
+
           # Accept all new config options as defaults (avoids interactive prompts)
           make olddefconfig
+
+          # Sanity check: fail the build early if TUN didn't stick
+          grep -q '^CONFIG_TUN=y' .config || (echo "CONFIG_TUN not enabled!" && exit 1)
 
           # Generate headers and scripts required by objtool BEFORE building
           make prepare
           make scripts
-
       # ── 4. Compile with amd64-v3 flags ───────────────────────────────────
       - name: Build kernel
         run: |
