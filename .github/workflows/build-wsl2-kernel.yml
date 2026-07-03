@@ -82,6 +82,16 @@ jobs:
           # Accept all new config options as defaults (avoids interactive prompts)
           make olddefconfig
 
+          # Second pass: promote any of our options that got demoted to =m
+          # (happens when a dependency was only tristate on the first pass)
+          for opt in $ALL_OPTS; do
+            if grep -q "^CONFIG_${opt}=m" .config; then
+              echo "Promoting CONFIG_${opt} from m to y"
+              ./scripts/config --file .config --enable CONFIG_$opt
+            fi
+          done
+          make olddefconfig
+
           # Sanity check: fail the build early if critical options didn't stick.
           # (options with Kconfig deps can silently revert during olddefconfig)
           for req in \
