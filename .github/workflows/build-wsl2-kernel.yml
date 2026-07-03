@@ -34,34 +34,87 @@ jobs:
           cp Microsoft/config-wsl .config
 
           # Label the kernel so you recognise it in uname -r
+          # (single source of truth: do NOT also pass LOCALVERSION= to make,
+          #  or the suffix gets applied twice)
           sed -i 's/CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-wsl2-x86_64-v3"/' .config
 
-          # Ensure TUN/TAP support is built-in (needed for podman/pasta, VPNs, etc.)
-          ./scripts/config --file .config --enable CONFIG_TUN
+          # ── Rootless container networking (podman + pasta/slirp4netns) ──
+          # CONFIG_TUN: /dev/net/tun, required by pasta and slirp4netns
+          for opt in \
+            TUN \
+            BRIDGE \
+            VETH \
+          ; do
+            ./scripts/config --file .config --enable CONFIG_$opt
+          done
 
-          # Optional but recommended alongside TUN, if you also use bridged/veth networking
-          ./scripts/config --file .config --enable CONFIG_BRIDGE
-          ./scripts/config --file .config --enable CONFIG_VETH
-          ./scripts/config --file .config --enable CONFIG_NETFILTER_XT_MATCH_COMMENT
+          # ── ccbox --with-firewall support (iptables-legacy + ipset) ──────
+          # init-firewall.sh uses iptables (filter/nat/mangle) + ipset hash:net.
+          # WSL2 bzImage has no module tree, so everything must be =y.
+          for opt in \
+            NETFILTER \
+            NETFILTER_ADVANCED \
+            NETFILTER_XTABLES \
+            NF_CONNTRACK \
+            NF_NAT \
+            IP_NF_IPTABLES \
+            IP_NF_FILTER \
+            IP_NF_NAT \
+            IP_NF_MANGLE \
+            IP_NF_TARGET_MASQUERADE \
+            IP_NF_TARGET_REJECT \
+            NETFILTER_XT_MATCH_CONNTRACK \
+            NETFILTER_XT_MATCH_STATE \
+            NETFILTER_XT_MATCH_COMMENT \
+            NETFILTER_XT_MATCH_OWNER \
+            NETFILTER_XT_MATCH_MULTIPORT \
+            NETFILTER_XT_TARGET_MASQUERADE \
+            NETFILTER_XT_SET \
+            IP_SET \
+            IP_SET_HASH_NET \
+            IP_SET_HASH_IP \
+          ; do
+            ./scripts/config --file .config --enable CONFIG_$opt
+          done
 
           # Accept all new config options as defaults (avoids interactive prompts)
           make olddefconfig
 
-          # Sanity check: fail the build early if TUN didn't stick
-          grep -q '^CONFIG_TUN=y' .config || (echo "CONFIG_TUN not enabled!" && exit 1)
+          # Sanity check: fail the build early if critical options didn't stick.
+          # (options with Kconfig deps can silently revert during olddefconfig)
+          for req in \
+            TUN \
+            NETFILTER_XTABLES \
+            IP_NF_IPTABLES \
+            IP_NF_FILTER \
+            IP_NF_NAT \
+            IP_NF_MANGLE \
+            IP_SET \
+            IP_SET_HASH_NET \
+          ; do
+            grep -q "^CONFIG_${req}=y" .config || {
+              echo "::error::CONFIG_${req} not enabled after olddefconfig!"
+              grep "CONFIG_${req}[ =]" .config || echo "CONFIG_${req} absent from .config"
+              exit 1
+            }
+          done
+          echo "All required kernel options confirmed =y"
 
           # Generate headers and scripts required by objtool BEFORE building
           make prepare
           make scripts
+
       # ── 4. Compile with amd64-v3 flags ───────────────────────────────────
       - name: Build kernel
         run: |
           # The Kernel Makefile requires KCFLAGS to append compiler flags, not CFLAGS
+          # LOCALVERSION deliberately NOT passed here: CONFIG_LOCALVERSION in
+          # .config is the single source of truth (avoids doubled suffix like
+          # 6.18.x-wsl2-x86_64-v3-wsl2-x86_64-v3)
           make -j$(nproc) \
             KCONFIG_CONFIG=.config \
             KCFLAGS="-march=x86-64-v3 -mtune=generic" \
-            KCPPFLAGS="-march=x86-64-v3 -mtune=generic" \
-            LOCALVERSION="-wsl2-x86_64-v3"
+            KCPPFLAGS="-march=x86-64-v3 -mtune=generic"
 
       # ── 5. Upload bzImage as a downloadable artifact ─────────────────────
       - name: Upload bzImage
@@ -69,4 +122,12 @@ jobs:
         with:
           name: bzImage-wsl2-x86_64-v3
           path: arch/x86/boot/bzImage
+          retention-days: 30
+
+      # ── 6. Upload final .config for auditing/debugging ────────────────────
+      - name: Upload kernel config
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-config-wsl2-x86_64-v3
+          path: .config
           retention-days: 30
