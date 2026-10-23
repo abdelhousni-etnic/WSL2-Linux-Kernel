@@ -79,6 +79,7 @@ jobs:
             ./scripts/config --file .config --enable CONFIG_$opt
           done
 
+          sed -i 's/=m$/=y/' .config
           # Accept all new config options as defaults (avoids interactive prompts)
           make olddefconfig
 
